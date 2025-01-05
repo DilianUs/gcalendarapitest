@@ -5,25 +5,58 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import dayjs from 'dayjs';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import * as React from 'react';
+import utc from 'dayjs/plugin/utc';
+import { useEffect } from 'react';
+
 //import { useNavigate } from "react-router-dom";
 
 function Login(){
-    
-    const [ start,setStart]= useState(dayjs());
-    const [ end,setEnd]= useState(dayjs());
-    const [ eventName,setEventName]= useState();
-    const [ eventDescription,setEventDescription]= useState();
+    dayjs.extend(utc);  
+ 
+    const [recurrenceEnd, setRecurrenceEnd]= useState(dayjs());
 
 
     const session = useSession();//tokens, when session exists we have user
     const supabase = useSupabaseClient();//talk to supabase
     const { isLoading} = useSessionContext();
     //const navigate = useNavigate();
+    useEffect(() => {
+        if (session) {
+            const sessionStartTime = localStorage.getItem('sessionStartTime');
+            const currentTime = Date.now();
+
+            if (!sessionStartTime) {
+                localStorage.setItem('sessionStartTime', currentTime);
+            } else {
+                const elapsedTime = currentTime - sessionStartTime;
+                const oneHour = 300000;
+
+                if (elapsedTime > oneHour) {
+                    // Sesión ha expirado
+                    supabase.auth.signOut();
+                    localStorage.removeItem('sessionStartTime');
+                    
+                    // navigate('/');
+                } else {
+                    // Configurar timeout para cerrar sesión después de 1 hora
+                    setTimeout(() => {
+                        supabase.auth.signOut();
+                        localStorage.removeItem('sessionStartTime');
+                        
+                        // navigate('/');
+                    }, oneHour - elapsedTime);
+                }
+            }
+        }
+    }, [session, supabase]);
     if(isLoading){
         return <></>
     }
 
+
     async function googleSignIn() {
+
+
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
@@ -43,46 +76,72 @@ function Login(){
         await supabase.auth.signOut();
     }
 
-     // Redirige al usuario cuando existe una sesión
-    // if (session) {
-      //  navigate('/events_form'); // Redirecciona al formulario
-   // }
 
-    async function CreateCalendarEvent(){
+
+async function CreateCalendarEvent(){
         console.log("creando evento");
-
-        const event ={
-            'summary': eventName,
-            'description': eventDescription,
-            'start':{
-                'dateTime': start.toISOString(),
-                'timeZone': Intl.DateTimeFormat().resolvedOptions().timeZone
-            },
-            'end':{
-                'dateTime': end.toISOString(),
-                'timeZone': Intl.DateTimeFormat().resolvedOptions().timeZone
-            }
+      
+    
+    const events = [
+        {
+            summary: 'Reunión de Proyecto 1',
+            description: 'Primera reunión del día.',
+            start: '2024-12-30T10:00:00Z',
+            end: '2024-12-30T11:00:00Z'
+        },
+        {
+            summary: 'Reunión de Proyecto 2',
+            description: 'Segunda reunión del día.',
+            start: '2024-12-30T12:00:00Z',
+            end: '2024-12-30T13:00:00Z'
+        },
+        {
+            summary: 'Reunión de Proyecto 3',
+            description: 'Tercera reunión del día.',
+            start: '2024-12-30T14:00:00Z',
+            end: '2024-12-30T15:00:00Z'
         }
+    ];
+
+    const formattedDate = dayjs(recurrenceEnd).utc().format('YYYYMMDDTHHmmss') + 'Z';
+
+    for (const event of events) {
+        const eventDetails = {
+            'summary': event.summary,
+            'description': event.description,
+            'start': {
+                'dateTime': event.start,
+                'timeZone': 'UTC'
+            },
+            'end': {
+                'dateTime': event.end,
+                'timeZone': 'UTC'
+            },
+            'recurrence': [
+                `RRULE:FREQ=WEEKLY;UNTIL=${formattedDate}`
+            ]
+        };
 
         await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
             method: 'POST',
             headers: {
                 'Authorization': 'Bearer ' + session.provider_token
             },
-            body: JSON.stringify(event)
-        }).then((data )=>{
+            body: JSON.stringify(eventDetails)
+        }).then((data) => {
             return data.json();
-        }).then((data)=>{
+        }).then((data) => {
             console.log(data);
-            alert("Evento creado, revisa tu GoogleCalendar");
-        })
-
+        });
     }
+    alert("Eventos creados, revisa tu Google Calendar");
+
+}
+   
 
     console.log(session || "No hay sesión activa");
-    console.log(start);
-    console.log(eventName);
-    console.log(eventDescription);
+    
+ 
     return(
         <div className="App">
            <div style={{width:"400px", margin:"30px auto"}}>
@@ -90,18 +149,13 @@ function Login(){
 
           
             <>
-                <h2>Hola {session.user.email}</h2>
+               <h2>Hola {session.user.email}</h2>
                 <LocalizationProvider dateAdapter={AdapterDayjs}>
-                    <p>Inicio de tu evento</p>
-                    <DateTimePicker onChange={setStart} value={start}/>
-                    <p>Final de tu evento</p>
-                    <DateTimePicker onChange={setEnd} value={end}/>
+                
+                    <p>Final de Recurrencia</p>
+                    <DateTimePicker onChange={setRecurrenceEnd} value={recurrenceEnd}/>
                 </LocalizationProvider>
-                <p>Nombre del Evento</p>
-                <input type="text" onChange={(e) => setEventName(e.target.value)} />
-                <p>Descripcion</p>
-                <input type="text" onChange={(e) => setEventDescription(e.target.value)} />
-                <p></p>
+                
                 <button onClick={() =>CreateCalendarEvent()}>Crear evento</button>
                 <p></p>
                 <button onClick={() => singOut()}>Cerrar Sesion</button>
